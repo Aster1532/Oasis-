@@ -11,6 +11,7 @@ require('dotenv').config();
 const axios = require('axios');
 const Parser = require('rss-parser');
 const cron = require('node-cron');
+const crypto = require('crypto');
 
 const parser = new Parser({
   customFields: {
@@ -39,18 +40,12 @@ let weeklyMemory = [];
 
 // --- HELPER: IMAGE HUNTER ---
 const extractImage = (item) => {
-  // 1. Check enclosures (standard RSS images)
   if (item.enclosure && item.enclosure.url) return item.enclosure.url;
-  
-  // 2. Check media:content (YouTube/News sites)
   if (item.mediaContent && item.mediaContent.$ && item.mediaContent.$.url) return item.mediaContent.$.url;
-  
-  // 3. Check HTML content for <img src="...">
   if (item.contentEncoded) {
     const imgMatch = item.contentEncoded.match(/src="([^"]+)"/);
     if (imgMatch) return imgMatch[1];
   }
-  
   return null;
 };
 
@@ -63,35 +58,32 @@ const runRealTimeEngine = async () => {
       const feed = await parser.parseURL(feedUrl);
       
       for (const item of feed.items.slice(0, 10)) {
-        if (sentHistory.includes(item.link)) continue;
+        // --- DEDUPLICATION ---
+        const uniqueString = (item.title || "") + (item.pubDate || "");
+        const itemId = crypto.createHash('md5').update(uniqueString).digest('hex');
+
+        if (sentHistory.includes(itemId)) continue;
 
         const headline = item.title || "";
         const rawDesc = item.contentSnippet || item.content || "";
         const cleanDesc = rawDesc.replace(/<[^>]*>?/gm, '').trim().substring(0, 450);
-        const imageUrl = extractImage(item);
-        
+        const imageUrl = extractImage(item); 
+        // NOTE: We removed the "if (!imageUrl) continue" check.
+        // Now, if no image is found, it just sends the text (which is better than missing news).
+
         // --- FILTERS ---
-        // MACRO REGEX (Strict Institutional)
         const isMacro = /(FED|CPI|Inflation|Rates|FOMC|Powell|Recession|Hike|Cut|GDP|Treasury|NFP|BRICS|DXY|De-dollarization|Federal Reserve|Gold|Silver|Central Bank|ECB|Debt|Yield|War|Conflict|Oil|Energy)/i.test(headline);
-        
-        // CRYPTO REGEX (Strict Assets/Infra)
         const isCrypto = /(ETF|SEC|BlackRock|Binance|Gensler|Regulation|Bitcoin|BTC|ETH|Ethereum|Whale|Liquidity|Halving|XRP|Ripple|Inflow|Outflow|Stablecoin|MicroStrategy|Tether|USDC|Circle|Coinbase|Institutional)/i.test(headline);
 
-        // --- SENTIMENT & COLOR ---
+        // --- SENTIMENT ---
         const bullish = /(Cut|Approval|Pump|Green|Bull|Rally|ETF|Adoption|Inflow|Gains|Record|Breakout|Whale Buy|Upside|Surge|Buying)/i.test(headline);
         const bearish = /(Hike|Panic|Crash|Dump|Drop|Inflation|Recession|SEC|Lawsuit|Hack|Outflow|Losses|Delayed|De-dollarization|War|Conflict|Selling|Downside|Default)/i.test(headline);
         
-        // Default: WHITE (Neutral) -> Green (Bullish) -> Red (Bearish)
         let color = 16777215; // White
         if (bullish) color = 3066993; // Green
         else if (bearish) color = 15158332; // Red
 
-        // --- ROUTING LOGIC ---
-        // Logic: If it matches Macro, send to Macro. If it matches Crypto, send to Crypto.
-        // If it matches BOTH (e.g., "Fed comments on Bitcoin"), prioritize MACRO to keep the Macro channel complete.
-        // Or, we can send to BOTH if they are distinct audiences.
-        // CURRENT LOGIC: Mutually Exclusive (Macro > Crypto) to prevent double posting.
-
+        // --- ROUTING ---
         let config = null;
 
         if (isMacro) {
@@ -121,16 +113,15 @@ const runRealTimeEngine = async () => {
               description: cleanDesc || "View full report via source.",
               url: item.link,
               color: color,
-              image: imageUrl ? { url: imageUrl } : null,
+              image: imageUrl ? { url: imageUrl } : null, // Sends null if no image found
               footer: { text: config.footer }
             }]
           });
 
-          // Save for Weekly Wrap
           weeklyMemory.push({ title: headline, link: item.link });
         }
 
-        sentHistory.push(item.link);
+        sentHistory.push(itemId);
         if (sentHistory.length > 500) sentHistory.shift();
       }
     } catch (e) { console.log(`Feed Error: ${feedUrl}`); }
@@ -211,7 +202,6 @@ const runWeeklyWrap = async () => {
 const runFearGreed = async () => {
   console.log('📊 Running Fear & Greed...');
   try {
-    // Fetches the dynamic image from Alternative.me
     const imageUrl = "https://alternative.me/crypto/fear-and-greed-index.png";
 
     await axios.post(process.env.WEBHOOK_MARKET, {
@@ -219,7 +209,7 @@ const runFearGreed = async () => {
       avatar_url: BOT_AVATAR,
       embeds: [{
         title: "📊 DAILY MARKET SENTIMENT",
-        color: 16777215, // White
+        color: 16777215, 
         image: { url: imageUrl },
         footer: { text: "Daily Market Sentiment Update • Oasis Terminal" }
       }]
@@ -231,7 +221,7 @@ const runFearGreed = async () => {
 
 // --- SCHEDULER (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
-cron.schedule('30 14 * * 1-5', () => runMarketDesk(true)); // 9:30 AM EST
-cron.schedule('0 21 * * 1-5', () => runMarketDesk(false)); // 4:00 PM EST
-cron.schedule('0 19 * * 0', runWeeklyWrap); // Sunday
-cron.schedule('0 1 * * *', runFearGreed); // Daily 1 AM
+cron.schedule('30 14 * * 1-5', () => runMarketDesk(true));
+cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
+cron.schedule('0 19 * * 0', runWeeklyWrap);
+cron.schedule('0 1 * * *', runFearGreed);
