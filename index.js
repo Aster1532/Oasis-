@@ -30,12 +30,13 @@ const BRIEF_FOOTER = "Pre-Market Institutional Analysis • Oasis Terminal";
 const LONDON_FOOTER = "Handover to New York Desk • Oasis Terminal";
 const SENTIMENT_FOOTER = "Daily Market Sentiment Update • Oasis Terminal";
 const ALERT_FOOTER = "Institutional Level Alert • Oasis Terminal";
+const LIQ_FOOTER = "Liquidity Flow Analysis • Oasis Terminal";
 
 // --- STATE MANAGEMENT ---
 let sentHistory = [];
 let weeklyMemory = []; 
 let narrativeMemory = [];
-let lastPrices = { bitcoin: 0, ethereum: 0, solana: 0, binancecoin: 0, gold: 0, silver: 0 };
+let lastPrices = { bitcoin: 0, ethereum: 0, solana: 0, binancecoin: 0 };
 
 // --- HELPER: IMAGE HUNTER ---
 const extractImage = (item) => {
@@ -48,27 +49,32 @@ const extractImage = (item) => {
   return null;
 };
 
-// --- MODULE: REAL-TIME ENGINE ---
+// --- MODULE 1: REAL-TIME ENGINE ---
 const runRealTimeEngine = async () => {
   const feeds = ["https://cointelegraph.com/rss", "https://cryptopanic.com/news/rss/", "https://www.cnbc.com/id/10000664/device/rss/rss.html", "https://feeds.feedburner.com/coindesk"];
   for (const url of feeds) {
     try {
       const feed = await parser.parseURL(url);
-      for (const item of feed.items.slice(0, 5)) {
+      for (const item of feed.items.slice(0, 10)) {
         const hash = crypto.createHash('md5').update((item.title || "") + (item.pubDate || "")).digest('hex');
         if (sentHistory.includes(hash)) continue;
-        const headline = item.title || "";
-        const isMacro = /(FED|CPI|Inflation|Rates|FOMC|Powell|Recession|Hike|Cut|GDP|Treasury|NFP|BRICS|DXY|Federal Reserve|Gold|Silver|Central Bank|ECB|Debt|Yield|War|Conflict|Oil|Energy)/i.test(headline);
-        const isCrypto = /(Bitcoin|BTC|ETH|Ethereum|Solana|SOL|XRP|Ripple|Binance|BNB|ETF|SATS|Stablecoin|Tether|USDC|Coinbase|Blockchain|Crypto|Altcoin)/i.test(headline);
 
-        if (isMacro || isCrypto) {
+        const headline = item.title || "";
+        const cryptoTerms = /(Bitcoin|BTC|ETH|Ethereum|Solana|SOL|XRP|Ripple|Binance|BNB|ETF|Stablecoin|Tether|USDC|Coinbase|Blockchain|Crypto|Altcoin)/i;
+        const macroTerms = /(FED|CPI|Inflation|Rates|FOMC|Powell|Recession|Hike|Cut|GDP|Treasury|NFP|BRICS|DXY|Federal Reserve|Gold|Silver|Central Bank|ECB|Debt|Yield|War|Conflict|Oil|Energy)/i;
+
+        let config = null;
+        if (cryptoTerms.test(headline)) {
+          config = { webhook: process.env.WEBHOOK_CRYPTO, name: "OASIS | Crypto Intel", ping: process.env.ROLE_ID_ALPHA, footer: CRYPTO_FOOTER };
+        } else if (macroTerms.test(headline)) {
+          config = { webhook: process.env.WEBHOOK_MACRO, name: "OASIS | Macro Terminal", ping: process.env.ROLE_ID_MACRO, footer: MACRO_FOOTER };
+        }
+
+        if (config) {
           const bullish = /(Cut|Approval|Pump|Green|Bull|Rally|ETF|Adoption|Inflow|Gains|Record|Breakout|Whale Buy)/i.test(headline);
           const bearish = /(Hike|Panic|Crash|Dump|Drop|Inflation|Recession|SEC|Lawsuit|Hack|Outflow|Losses|War|Conflict)/i.test(headline);
           let color = 16777215;
           if (bullish) color = 3066993; else if (bearish) color = 15158332;
-
-          let config = isCrypto ? { webhook: process.env.WEBHOOK_CRYPTO, name: "OASIS | Crypto Intel", ping: process.env.ROLE_ID_ALPHA, footer: CRYPTO_FOOTER }
-                                : { webhook: process.env.WEBHOOK_MACRO, name: "OASIS | Macro Terminal", ping: process.env.ROLE_ID_MACRO, footer: MACRO_FOOTER };
 
           await axios.post(config.webhook, {
             username: config.name, avatar_url: BOT_AVATAR, content: `<@&${config.ping}>`,
@@ -78,82 +84,128 @@ const runRealTimeEngine = async () => {
           narrativeMemory.push(headline);
         }
         sentHistory.push(hash);
+        if (sentHistory.length > 500) sentHistory.shift();
       }
     } catch (e) {}
   }
 };
 
-// --- MODULE: WEEKLY WRAP (THE SUNDAY REPORT) ---
-const runWeeklyWrap = async () => {
-  console.log('🗞️ Generating Weekly Wrap...');
-  if (weeklyMemory.length < 3) {
-      console.log("Not enough data in memory to wrap.");
-      return;
-  }
-
+// --- MODULE 2: LIQUIDATION WATCH (V3 Alpha) ---
+const runLiquidationWatch = async () => {
+  console.log('💥 Scanning for Whales in Trouble...');
   try {
-    const titles = weeklyMemory.map(i => i.title).join("\n");
-    const prompt = `Senior Institutional Market Analyst. Review these headlines and generate a professional summary.
-    - Exactly 3 bullets.
-    - Each bullet starts with a Bold Header theme (e.g., **Institutional Flow**, **Macro Volatility**).
-    - Use sophisticated terminology. No intro.
-    Headlines:\n${titles}`;
+    const prompt = `You are a Professional Risk Manager. Search for the latest Crypto Liquidation Heatmap data (last 4-24 hours).
+    Identify:
+    1. MAJOR LIQUIDATION WALLS: Prices where over $50M in longs or shorts are sitting (BTC/ETH/SOL).
+    2. WHALE LIQUIDATIONS: Did any single liquidation over $1M occur recently?
+    3. RISK LEVEL: Is the market currently set up for a "Long Squeeze" or "Short Squeeze"?
+    
+    Format: Use 💥 for liquidations, ⚠️ for risk warnings, and 📉/📈 for price walls. Keep it institutional and cold. No intro.`;
 
     const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-      contents: [{ parts: [{ text: "Generate the Weekly Market Overview." }] }],
-      systemInstruction: { parts: [{ text: prompt }] }
+      contents: [{ parts: [{ text: "Analyze Liquidation Heatmaps." }] }],
+      systemInstruction: { parts: [{ text: prompt }] },
+      tools: [{ "google_search": {} }]
     });
 
-    const summary = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-    const primarySources = weeklyMemory.slice(-5).map(i => `• [${i.title}](${i.link})`).join("\n");
-
-    if (summary) {
-      await axios.post(process.env.WEBHOOK_WEEKLY, {
-        username: "OASIS | Reports", avatar_url: BOT_AVATAR,
+    const analysis = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (analysis) {
+      await axios.post(process.env.WEBHOOK_LIQUIDATIONS, {
+        username: "OASIS | Liquidity Tracker",
+        avatar_url: BOT_AVATAR,
         embeds: [{
-          title: "🗞️ MARKET OVERVIEW",
-          description: `**Summary:**\n${summary}\n\n**Primary Source:**\n${primarySources}`,
-          color: 16777215, image: { url: WEEKLY_HEADER_IMG }, footer: { text: WEEKLY_FOOTER }
+          title: "🔥 LIQUIDATION & WHALE TRACKER",
+          description: analysis,
+          color: 15158332, // Red for high-risk data
+          footer: { text: LIQ_FOOTER },
+          timestamp: new Date()
         }]
       });
     }
-    // We only reset if this wasn't a manual test trigger (logic handled in the route below)
-  } catch (e) { console.error("Weekly Wrap Error:", e.message); }
+  } catch (e) { console.error("Liq Tracker Error:", e.message); }
 };
 
-// --- REMAINING MODULES (Brief, Recap, Watchdog, etc.) ---
-const runMorningBrief = async () => { /* Logic hidden for brevity */ };
-const runLondonHandover = async () => { /* Logic hidden for brevity */ };
-const runKnowledgeDrop = async () => { /* Logic hidden for brevity */ };
-const runPriceWatchdog = async () => { /* Logic hidden for brevity */ };
-const runMarketDesk = async (isOpen) => { /* Logic hidden for brevity */ };
-const runFearGreed = async () => { /* Logic hidden for brevity */ };
+// --- MODULE: WEEKLY WRAP (Sunday 7 PM) ---
+const runWeeklyWrap = async () => {
+  if (weeklyMemory.length < 5) return;
+  try {
+    const titles = weeklyMemory.map(i => i.title).join("\n");
+    const prompt = `Senior Institutional Analyst. Generate 3-bullet summary with bold headers theme. Headlines:\n${titles}`;
+    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      contents: [{ parts: [{ text: "Generate the Weekly Market Overview." }] }], systemInstruction: { parts: [{ text: prompt }] }
+    });
+    const summary = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const primarySources = weeklyMemory.slice(-5).map(i => `• [${i.title}](${i.link})`).join("\n");
+    if (summary) {
+      await axios.post(process.env.WEBHOOK_WEEKLY, {
+        username: "OASIS | Reports", avatar_url: BOT_AVATAR,
+        embeds: [{ title: "🗞️ MARKET OVERVIEW", description: `**Summary:**\n${summary}\n\n**Primary Source:**\n${primarySources}`, color: 16777215, image: { url: WEEKLY_HEADER_IMG }, footer: { text: WEEKLY_FOOTER } }]
+      });
+    }
+    weeklyMemory = [];
+  } catch (e) {}
+};
 
-// --- SCHEDULES ---
+// --- REMAINING SCHEDULED MODULES ---
+const runMorningBrief = async () => {
+    try {
+        const prompt = `Senior Analyst. Generate Brief: 1. VOLATILITY DANGER ZONE. 2. INSTITUTIONAL FLOWS. 3. NARRATIVE. Context: ${narrativeMemory.slice(-20).join(". ")}`;
+        const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+          contents: [{ parts: [{ text: "Create Morning Brief" }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }]
+        });
+        const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+            await axios.post(process.env.WEBHOOK_MARKET, { username: "OASIS | Intelligence", avatar_url: BOT_AVATAR, embeds: [{ title: "🌅 OASIS MORNING BRIEF", description: text, color: 16777215, footer: { text: BRIEF_FOOTER } }] });
+        }
+    } catch (e) {}
+};
+
+const runPriceWatchdog = async () => {
+  try {
+    const res = await axios.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin&vs_currencies=usd");
+    const p = { BTC: res.data.bitcoin.usd, ETH: res.data.ethereum.usd, SOL: res.data.solana.usd, BNB: res.data.binancecoin.usd };
+    const levels = { BTC: 5000, ETH: 500, SOL: 10, BNB: 50 };
+    for (const asset in levels) {
+      const current = p[asset];
+      const previous = lastPrices[asset.toLowerCase()] || 0;
+      if (previous > 0 && Math.floor(current / levels[asset]) !== Math.floor(previous / levels[asset])) {
+        const target = Math.floor(current / levels[asset]) * levels[asset];
+        await axios.post(process.env.WEBHOOK_ALERTS, {
+          username: "OASIS | Price Watchdog", avatar_url: BOT_AVATAR,
+          embeds: [{ title: `⚡ PSYCHOLOGICAL LEVEL: ${asset}`, description: `**${asset}** crossed **$${target.toLocaleString()}**.\nPrice: **$${current.toLocaleString()}**`, color: current > previous ? 3066993 : 15158332, footer: { text: ALERT_FOOTER } }]
+        });
+      }
+      lastPrices[asset.toLowerCase()] = current;
+    }
+  } catch (e) {}
+};
+
+const runMarketDesk = async (isOpen) => {
+  try {
+    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      contents: [{ parts: [{ text: "Fetch DXY, 10Y Yield, S&P 500, Gold, Silver." }] }],
+      systemInstruction: { parts: [{ text: "Format: ▪️ **Asset**\n 🔹 Level: [Val] [Emoji]\n 🔹 24h: [Val] [Emoji]" }] }, tools: [{ "google_search": {} }]
+    });
+    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      await axios.post(process.env.WEBHOOK_MARKET, { username: "OASIS | Market Desk", avatar_url: BOT_AVATAR, embeds: [{ title: isOpen ? "🔔 NYSE OPEN" : "🌆 NYSE CLOSE", description: text, color: 16777215, footer: { text: "Market Settlement • Oasis Terminal" } }] });
+    }
+  } catch (e) {}
+};
+
+// --- SCHEDULES (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
+cron.schedule('0 */4 * * *', runLiquidationWatch); // Every 4 hours
 cron.schedule('*/15 * * * *', runPriceWatchdog);
-cron.schedule('0 0,12 * * *', runKnowledgeDrop);
-cron.schedule('0 12 * * 1-5', runLondonHandover);
 cron.schedule('30 13 * * 1-5', runMorningBrief);
 cron.schedule('30 14 * * 1-5', () => runMarketDesk(true));
 cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
-cron.schedule('0 1 * * *', runFearGreed);
-cron.schedule('0 19 * * 0', async () => { await runWeeklyWrap(); weeklyMemory = []; });
+cron.schedule('0 19 * * 0', runWeeklyWrap);
 
-// --- START SERVER ---
-app.listen(port, () => console.log(`Oasis Terminal running on port ${port}`));
-    
-    // 1. Inject Mock Data (Sample news so it has something to summarize)
-    weeklyMemory = [
-        { title: "Bitcoin options boom raises fears of capped BTC upside", link: "https://cointelegraph.com/news/bitcoin-options-under-fire" },
-        { title: "Fed Liquidity injection expected as DXY nears critical support", link: "https://cnbc.com/fed-liquidity" },
-        { title: "The Bybit hack made Kim Jong Un crypto's most influential in 2025", link: "https://cointelegraph.com/news/bybit-hack" },
-        { title: "BlackRock IBIT sees record $1.2B inflows in single session", link: "https://coindesk.com/blackrock-inflows" },
-        { title: "US Treasury yields surge following NFP data beat", link: "https://cnbc.com/treasury-yields" }
-    ];
+app.listen(port, () => console.log(`Oasis Terminal v3.0 Running`));
 
-    // 2. Run the function
-    await runWeeklyWrap();
-
-    res.send("<h1>Test Signal Sent!</h1><p>Check your Discord #weekly-wrap channel. I have injected 5 sample news items for this test.</p>");
+// --- MANUAL TEST ROUTE ---
+app.get('/test-liq', async (req, res) => {
+    await runLiquidationWatch();
+    res.send("Liquidation tracker triggered. Check Discord.");
 });
