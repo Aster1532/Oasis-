@@ -12,7 +12,15 @@ const axios = require('axios');
 const Parser = require('rss-parser');
 const cron = require('node-cron');
 
-const parser = new Parser();
+const parser = new Parser({
+  customFields: {
+    item: [
+      ['media:content', 'mediaContent'],
+      ['enclosure', 'enclosure'],
+      ['content:encoded', 'contentEncoded']
+    ]
+  }
+});
 
 // --- CONFIGURATION ---
 const RSS_FEEDS = [
@@ -22,9 +30,29 @@ const RSS_FEEDS = [
   "https://feeds.feedburner.com/coindesk"
 ];
 
+// UNIFIED AVATAR
+const BOT_AVATAR = "https://github.com/Aster1532/Bot-assets/blob/main/Picsart_26-01-04_00-27-24-969.jpg?raw=true";
+
 // Memory Storage
 let sentHistory = [];
 let weeklyMemory = [];
+
+// --- HELPER: IMAGE HUNTER ---
+const extractImage = (item) => {
+  // 1. Check enclosures (standard RSS images)
+  if (item.enclosure && item.enclosure.url) return item.enclosure.url;
+  
+  // 2. Check media:content (YouTube/News sites)
+  if (item.mediaContent && item.mediaContent.$ && item.mediaContent.$.url) return item.mediaContent.$.url;
+  
+  // 3. Check HTML content for <img src="...">
+  if (item.contentEncoded) {
+    const imgMatch = item.contentEncoded.match(/src="([^"]+)"/);
+    if (imgMatch) return imgMatch[1];
+  }
+  
+  return null;
+};
 
 // --- MODULE 1: REAL-TIME ENGINE ---
 const runRealTimeEngine = async () => {
@@ -38,40 +66,57 @@ const runRealTimeEngine = async () => {
         if (sentHistory.includes(item.link)) continue;
 
         const headline = item.title || "";
-        const cleanDesc = (item.contentSnippet || item.content || "").replace(/<[^>]*>?/gm, '').trim().substring(0, 450);
+        const rawDesc = item.contentSnippet || item.content || "";
+        const cleanDesc = rawDesc.replace(/<[^>]*>?/gm, '').trim().substring(0, 450);
+        const imageUrl = extractImage(item);
         
-        // FILTERS
+        // --- FILTERS ---
+        // MACRO REGEX
         const isMacro = /(FED|CPI|Inflation|Rates|FOMC|Powell|Recession|Hike|Cut|GDP|Treasury|NFP|BRICS|DXY|De-dollarization|Federal Reserve|Gold|Silver|Central Bank|ECB|Debt|Yield|War|Conflict|Oil|Energy)/i.test(headline);
-        const isCrypto = /(ETF|SEC|BlackRock|Binance|Gensler|Regulation|Bitcoin|BTC|ETH|Ethereum|Whale|Liquidity|Halving|XRP|Ripple|Inflow|Outflow|Stablecoin|MicroStrategy|Tether|USDC|Coinbase|Institutional)/i.test(headline);
+        
+        // CRYPTO REGEX
+        const isCrypto = /(ETF|SEC|BlackRock|Binance|Gensler|Regulation|Bitcoin|BTC|ETH|Ethereum|Whale|Liquidity|Halving|XRP|Ripple|Inflow|Outflow|Stablecoin|MicroStrategy|Tether|USDC|Circle|Coinbase|Institutional)/i.test(headline);
 
-        const bullish = /(Cut|Approval|Pump|Green|Bull|Rally|ETF|Adoption|Inflow|Gains|Record|Breakout|Whale Buy)/i.test(headline);
-        const color = bullish ? 3066993 : 15158332;
+        // --- SENTIMENT & COLOR ---
+        const bullish = /(Cut|Approval|Pump|Green|Bull|Rally|ETF|Adoption|Inflow|Gains|Record|Breakout|Whale Buy|Upside|Surge|Buying)/i.test(headline);
+        const bearish = /(Hike|Panic|Crash|Dump|Drop|Inflation|Recession|SEC|Lawsuit|Hack|Outflow|Losses|Delayed|De-dollarization|War|Conflict|Selling|Downside|Default)/i.test(headline);
+        
+        // Default: WHITE (Neutral) -> Green (Bullish) -> Red (Bearish)
+        let color = 16777215; // White
+        if (bullish) color = 3066993; // Green
+        else if (bearish) color = 15158332; // Red
 
-        // ROUTING
-        if (isMacro || isCrypto) {
-          const config = isMacro ? {
+        // --- ROUTING ---
+        let config = null;
+
+        if (isMacro) {
+          config = {
             webhook: process.env.WEBHOOK_MACRO,
             name: "OASIS | Macro Terminal",
             footer: "Source: Institutional Macro Feed • Oasis Terminal",
             ping: process.env.ROLE_ID_MACRO,
-            avatar: "https://raw.githubusercontent.com/Aster1532/Bot-assets/refs/heads/main/1405.i012.002.S.m003.c11.network_globe.jpg"
-          } : {
+          };
+        } else if (isCrypto) {
+          config = {
             webhook: process.env.WEBHOOK_CRYPTO,
             name: "OASIS | Crypto Intel",
             footer: "Alpha News Feed • Oasis Terminal",
             ping: process.env.ROLE_ID_ALPHA,
-            avatar: "https://raw.githubusercontent.com/Aster1532/Bot-assets/refs/heads/main/Picsart_25-12-22_22-08-38-462.jpg"
           };
+        }
 
+        // Send if matched
+        if (config) {
           await axios.post(config.webhook, {
             username: config.name,
-            avatar_url: config.avatar,
+            avatar_url: BOT_AVATAR,
             content: `<@&${config.ping}>`,
             embeds: [{
               title: `🚨 ${headline}`,
               description: cleanDesc || "View full report via source.",
               url: item.link,
               color: color,
+              image: imageUrl ? { url: imageUrl } : null,
               footer: { text: config.footer }
             }]
           });
@@ -112,11 +157,11 @@ Assets: DXY (Dollar Index), US 10Y Treasury Yield, S&P 500 Index.`;
 
       await axios.post(process.env.WEBHOOK_MARKET, {
         username: "OASIS | Market Desk",
-        avatar_url: "https://raw.githubusercontent.com/Aster1532/Bot-assets/refs/heads/main/Picsart_26-01-04_00-27-24-969.jpg",
+        avatar_url: BOT_AVATAR,
         embeds: [{
           title: title,
           description: data,
-          color: 16777215,
+          color: 16777215, // White
           footer: { text: `Oasis Market Desk • ${footer}` },
           timestamp: new Date()
         }]
@@ -145,23 +190,45 @@ const runWeeklyWrap = async () => {
   
   await axios.post(process.env.WEBHOOK_WEEKLY, {
     username: "OASIS | Reports",
-    avatar_url: "https://raw.githubusercontent.com/Aster1532/Bot-assets/refs/heads/main/Picsart_26-01-04_00-27-24-969.jpg",
+    avatar_url: BOT_AVATAR,
     embeds: [{
-      title: "🗞️ MARKET OVERVIEW",
-      description: `**Summary:**\n${summary}\n\n**Primary Source:**\n${listText}`,
+      title: "🗞️ WEEKLY INTELLIGENCE SUMMARY",
+      description: `**AI Analysis:**\n${summary}\n\n**Primary Source:**\n${listText}`,
       color: 16777215,
       image: { url: "https://raw.githubusercontent.com/Aster1532/Bot-assets/refs/heads/main/Picsart_25-12-24_19-16-44-741.jpg" },
-      footer: { text: "The Most Important Only • Oasis Terminal" }
+      footer: { text: "⭐ The Most Important Only • Oasis Terminal" }
     }]
   });
   weeklyMemory = [];
 };
 
-// --- SCHEDULES ---
+// --- MODULE 4: FEAR & GREED (Daily 1:00 AM UTC) ---
+const runFearGreed = async () => {
+  console.log('📊 Running Fear & Greed...');
+  try {
+    // We fetch the data just to check consistency, but we use the static dynamic image URL
+    // The image URL below automatically updates every day by Alternative.me
+    const imageUrl = "https://alternative.me/crypto/fear-and-greed-index.png";
+
+    await axios.post(process.env.WEBHOOK_MARKET, {
+      username: "OASIS | Sentiment",
+      avatar_url: BOT_AVATAR,
+      embeds: [{
+        title: "📊 DAILY MARKET SENTIMENT",
+        color: 16777215, // White frame to let the image pop
+        image: { url: imageUrl },
+        footer: { text: "Daily Market Sentiment Update • Oasis Terminal" }
+      }]
+    });
+  } catch (e) {
+    console.error("Fear Greed Error", e.message);
+  }
+};
+
+// --- SCHEDULER (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
-cron.schedule('30 14 * * 1-5', () => runMarketDesk(true));
-cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
-cron.schedule('0 19 * * 0', runWeeklyWrap);
-
-
-
+cron.schedule('30 14 * * 1-5', () => runMarketDesk(true)); // 9:30 AM EST
+cron.schedule('0 21 * * 1-5', () => runMarketDesk(false)); // 4:00 PM EST
+cron.schedule('0 19 * * 0', runWeeklyWrap); // Sunday
+cron.schedule('0 1 * * *', runFearGreed); // Daily 1 AM
+            
