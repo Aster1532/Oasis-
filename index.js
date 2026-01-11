@@ -71,10 +71,10 @@ const runRealTimeEngine = async () => {
         const imageUrl = extractImage(item);
         
         // --- FILTERS ---
-        // MACRO REGEX
+        // MACRO REGEX (Strict Institutional)
         const isMacro = /(FED|CPI|Inflation|Rates|FOMC|Powell|Recession|Hike|Cut|GDP|Treasury|NFP|BRICS|DXY|De-dollarization|Federal Reserve|Gold|Silver|Central Bank|ECB|Debt|Yield|War|Conflict|Oil|Energy)/i.test(headline);
         
-        // CRYPTO REGEX
+        // CRYPTO REGEX (Strict Assets/Infra)
         const isCrypto = /(ETF|SEC|BlackRock|Binance|Gensler|Regulation|Bitcoin|BTC|ETH|Ethereum|Whale|Liquidity|Halving|XRP|Ripple|Inflow|Outflow|Stablecoin|MicroStrategy|Tether|USDC|Circle|Coinbase|Institutional)/i.test(headline);
 
         // --- SENTIMENT & COLOR ---
@@ -86,7 +86,12 @@ const runRealTimeEngine = async () => {
         if (bullish) color = 3066993; // Green
         else if (bearish) color = 15158332; // Red
 
-        // --- ROUTING ---
+        // --- ROUTING LOGIC ---
+        // Logic: If it matches Macro, send to Macro. If it matches Crypto, send to Crypto.
+        // If it matches BOTH (e.g., "Fed comments on Bitcoin"), prioritize MACRO to keep the Macro channel complete.
+        // Or, we can send to BOTH if they are distinct audiences.
+        // CURRENT LOGIC: Mutually Exclusive (Macro > Crypto) to prevent double posting.
+
         let config = null;
 
         if (isMacro) {
@@ -206,8 +211,7 @@ const runWeeklyWrap = async () => {
 const runFearGreed = async () => {
   console.log('📊 Running Fear & Greed...');
   try {
-    // We fetch the data just to check consistency, but we use the static dynamic image URL
-    // The image URL below automatically updates every day by Alternative.me
+    // Fetches the dynamic image from Alternative.me
     const imageUrl = "https://alternative.me/crypto/fear-and-greed-index.png";
 
     await axios.post(process.env.WEBHOOK_MARKET, {
@@ -215,7 +219,7 @@ const runFearGreed = async () => {
       avatar_url: BOT_AVATAR,
       embeds: [{
         title: "📊 DAILY MARKET SENTIMENT",
-        color: 16777215, // White frame to let the image pop
+        color: 16777215, // White
         image: { url: imageUrl },
         footer: { text: "Daily Market Sentiment Update • Oasis Terminal" }
       }]
@@ -231,4 +235,3 @@ cron.schedule('30 14 * * 1-5', () => runMarketDesk(true)); // 9:30 AM EST
 cron.schedule('0 21 * * 1-5', () => runMarketDesk(false)); // 4:00 PM EST
 cron.schedule('0 19 * * 0', runWeeklyWrap); // Sunday
 cron.schedule('0 1 * * *', runFearGreed); // Daily 1 AM
-            
