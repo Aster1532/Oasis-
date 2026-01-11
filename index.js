@@ -142,10 +142,6 @@ cron.schedule('0 19 * * 0', async () => { await runWeeklyWrap(); weeklyMemory = 
 
 // --- START SERVER ---
 app.listen(port, () => console.log(`Oasis Terminal running on port ${port}`));
-
-// --- !!! TEST TRIGGER ROUTE !!! ---
-app.get('/test-wrap', async (req, res) => {
-    console.log("Manual trigger for Weekly Wrap received...");
     
     // 1. Inject Mock Data (Sample news so it has something to summarize)
     weeklyMemory = [
