@@ -96,7 +96,7 @@ const runFearGreed = async () => {
       username: "OASIS | Sentiment",
       avatar_url: BOT_AVATAR,
       embeds: [{
-        title: "📊 DAILY MARKET SENTIMENT",
+        title: "",
         color: 16777215, 
         image: { url: imageUrl },
         footer: { text: SENTIMENT_FOOTER }
