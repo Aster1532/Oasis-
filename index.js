@@ -88,12 +88,8 @@ const runRealTimeEngine = async () => {
 const runFearGreed = async () => {
   console.log('📊 Generating Sentiment Report...');
   try {
-    // 1. Force refresh image by adding random query string (Cache Busting)
     const timestamp = new Date().getTime();
     const imageUrl = `https://alternative.me/crypto/fear-and-greed-index.png?t=${timestamp}`;
-    
-    // 2. Use the dedicated SNAPSHOTS webhook
-    // Fallback to MARKET webhook if SNAPSHOTS is missing to prevent crash
     const targetWebhook = process.env.WEBHOOK_SNAPSHOTS || process.env.WEBHOOK_MARKET;
 
     await axios.post(targetWebhook, {
@@ -138,11 +134,82 @@ const runWeeklyWrap = async () => {
   } catch (e) {}
 };
 
-const runMorningBrief = async () => { /* Logic hidden */ };
-const runLondonHandover = async () => { /* Logic hidden */ };
-const runKnowledgeDrop = async () => { /* Logic hidden */ };
-const runPriceWatchdog = async () => { /* Logic hidden */ };
-const runMarketDesk = async (isOpen) => { /* Logic hidden */ };
+const runMorningBrief = async () => {
+    try {
+        const prompt = `Senior Analyst. Generate Brief: 1. VOLATILITY DANGER ZONE. 2. INSTITUTIONAL FLOWS. 3. NARRATIVE. Context: ${narrativeMemory.slice(-20).join(". ")}`;
+        const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+          contents: [{ parts: [{ text: "Create Morning Brief" }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }]
+        });
+        const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+            await axios.post(process.env.WEBHOOK_MARKET, { username: "OASIS | Intelligence", avatar_url: BOT_AVATAR, embeds: [{ title: "🌅 OASIS MORNING BRIEF", description: text, color: 16777215, footer: { text: BRIEF_FOOTER } }] });
+        }
+    } catch (e) {}
+};
+
+const runLondonHandover = async () => {
+  try {
+    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      contents: [{ parts: [{ text: "Recap London session focus on GBP, EUR, BTC." }] }], 
+      systemInstruction: { parts: [{ text: "3 bullets. Institutional tone." }] }, tools: [{ "google_search": {} }]
+    });
+    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      await axios.post(process.env.WEBHOOK_MARKET, {
+        username: "OASIS | Session Desk", avatar_url: BOT_AVATAR,
+        embeds: [{ title: "🇬🇧 LONDON SESSION HANDOVER", description: text, color: 16777215, footer: { text: LONDON_FOOTER } }]
+      });
+    }
+  } catch (e) {}
+};
+
+const runKnowledgeDrop = async () => {
+  try {
+    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      contents: [{ parts: [{ text: "Explain one institutional trading term in 2 sentences." }] }]
+    });
+    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      await axios.post(process.env.WEBHOOK_MACRO, {
+        username: "OASIS | Academy", avatar_url: BOT_AVATAR,
+        embeds: [{ title: "📖 KNOWLEDGE DROP", description: text, color: 16777215, footer: { text: "Education • Oasis Terminal" } }]
+      });
+    }
+  } catch (e) {}
+};
+
+const runPriceWatchdog = async () => {
+  try {
+    const res = await axios.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin&vs_currencies=usd");
+    const p = { BTC: res.data.bitcoin.usd, ETH: res.data.ethereum.usd, SOL: res.data.solana.usd, BNB: res.data.binancecoin.usd };
+    const levels = { BTC: 5000, ETH: 500, SOL: 10, BNB: 50 };
+    for (const asset in levels) {
+      const current = p[asset];
+      const previous = lastPrices[asset.toLowerCase()] || 0;
+      if (previous > 0 && Math.floor(current / levels[asset]) !== Math.floor(previous / levels[asset])) {
+        const target = Math.floor(current / levels[asset]) * levels[asset];
+        await axios.post(process.env.WEBHOOK_ALERTS, {
+          username: "OASIS | Price Watchdog", avatar_url: BOT_AVATAR,
+          embeds: [{ title: `⚡ PSYCHOLOGICAL LEVEL: ${asset}`, description: `**${asset}** crossed **$${target.toLocaleString()}**.\nPrice: **$${current.toLocaleString()}**`, color: current > previous ? 3066993 : 15158332, footer: { text: ALERT_FOOTER } }]
+        });
+      }
+      lastPrices[asset.toLowerCase()] = current;
+    }
+  } catch (e) {}
+};
+
+const runMarketDesk = async (isOpen) => {
+  try {
+    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      contents: [{ parts: [{ text: "Fetch DXY, 10Y Yield, S&P 500, Gold, Silver." }] }],
+      systemInstruction: { parts: [{ text: "Format: ▪️ **Asset**\n 🔹 Level: [Val] [Emoji]\n 🔹 24h: [Val] [Emoji]" }] }, tools: [{ "google_search": {} }]
+    });
+    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      await axios.post(process.env.WEBHOOK_MARKET, { username: "OASIS | Market Desk", avatar_url: BOT_AVATAR, embeds: [{ title: isOpen ? "🔔 NYSE OPEN" : "🌆 NYSE CLOSE", description: text, color: 16777215, footer: { text: "Market Settlement • Oasis Terminal" } }] });
+    }
+  } catch (e) {}
+};
 
 // --- SCHEDULES (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
