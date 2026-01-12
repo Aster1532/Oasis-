@@ -30,7 +30,7 @@ const BRIEF_FOOTER = "Pre-Market Institutional Analysis • Oasis Terminal";
 const LONDON_FOOTER = "Handover to New York Desk • Oasis Terminal";
 const SENTIMENT_FOOTER = "Daily Market Sentiment Update • Oasis Terminal";
 const ALERT_FOOTER = "Institutional Level Alert • Oasis Terminal";
-const LIQ_FOOTER = "Liquidity Flow Analysis • Oasis Terminal"; // Clean footer
+const LIQ_FOOTER = "Liquidity Flow Analysis • Oasis Terminal";
 
 // --- STATE MANAGEMENT ---
 let sentHistory = [];
@@ -84,69 +84,43 @@ const runRealTimeEngine = async () => {
   }
 };
 
-// --- MODULE 2: LIQUIDATION WATCH (V3 Clean) ---
-const runLiquidationWatch = async () => {
-  console.log('💥 Scanning for Major Liquidations...');
+// --- MODULE 2: SENTIMENT (FEAR & GREED) ---
+const runFearGreed = async () => {
+  console.log('📊 Generating Sentiment Report...');
   try {
-    const prompt = `You are a Risk Manager. Search Liquidation Heatmaps (last 24h).
-    Report ONLY on **BTC, ETH, and SOL**. Ignore all memecoins/low-caps.
+    // We use the dynamic image which Alternative.me updates daily
+    const imageUrl = "https://alternative.me/crypto/fear-and-greed-index.png";
     
-    1. **MAJOR WALLS**: Where is >$50M liquidity sitting?
-    2. **WHALE ACTIVITY**: Largest single liquidation for BTC/ETH/SOL only.
-    3. **RISK**: "Long Squeeze" or "Short Squeeze"?
-    
-    Format: Clean bullets. Institutional tone. No intro.`;
+    // We fetch the data just to log the value, but rely on the image for the post
+    const res = await axios.get("https://api.alternative.me/fng/?limit=1");
+    const data = res.data.data[0];
+    console.log(`Sentiment Value: ${data.value}`);
 
-    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-      contents: [{ parts: [{ text: "Analyze Liquidations for BTC/ETH/SOL." }] }],
-      systemInstruction: { parts: [{ text: prompt }] },
-      tools: [{ "google_search": {} }]
+    await axios.post(process.env.WEBHOOK_MARKET, {
+      username: "OASIS | Sentiment",
+      avatar_url: BOT_AVATAR,
+      embeds: [{
+        title: "📊 DAILY MARKET SENTIMENT",
+        color: 16777215, // White
+        image: { url: imageUrl },
+        footer: { text: SENTIMENT_FOOTER }
+      }]
     });
-
-    const analysis = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (analysis) {
-      await axios.post(process.env.WEBHOOK_LIQUIDATIONS, {
-        username: "OASIS | Liquidity Tracker",
-        avatar_url: BOT_AVATAR,
-        embeds: [{
-          title: "🔥 LIQUIDATION & WHALE TRACKER",
-          description: analysis,
-          color: 15158332, // Red for Alert/Danger
-          footer: { text: LIQ_FOOTER } // No timestamp
-        }]
-      });
-    }
-  } catch (e) { console.error("Liq Error:", e.message); }
+  } catch (e) {
+    console.error("Sentiment Error:", e.message);
+  }
 };
 
 // --- REMAINING MODULES ---
-const runWeeklyWrap = async () => {
-  if (weeklyMemory.length < 3) return;
-  try {
-    const titles = weeklyMemory.map(i => i.title).join("\n");
-    const prompt = `Senior Analyst. Generate 3-bullet summary with bold headers. Headlines:\n${titles}`;
-    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-      contents: [{ parts: [{ text: "Generate Weekly Wrap" }] }], systemInstruction: { parts: [{ text: prompt }] }
-    });
-    const summary = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-    const primarySources = weeklyMemory.slice(-5).map(i => `• [${i.title}](${i.link})`).join("\n");
-    if (summary) {
-      await axios.post(process.env.WEBHOOK_WEEKLY, {
-        username: "OASIS | Reports", avatar_url: BOT_AVATAR,
-        embeds: [{ title: "🗞️ MARKET OVERVIEW", description: `**Summary:**\n${summary}\n\n**Primary Source:**\n${primarySources}`, color: 16777215, image: { url: WEEKLY_HEADER_IMG }, footer: { text: WEEKLY_FOOTER } }]
-      });
-    }
-  } catch (e) {}
-};
-
+const runLiquidationWatch = async () => { /* Logic hidden */ };
+const runWeeklyWrap = async () => { /* Logic hidden */ };
 const runMorningBrief = async () => { /* Logic hidden */ };
 const runLondonHandover = async () => { /* Logic hidden */ };
 const runKnowledgeDrop = async () => { /* Logic hidden */ };
 const runPriceWatchdog = async () => { /* Logic hidden */ };
 const runMarketDesk = async (isOpen) => { /* Logic hidden */ };
-const runFearGreed = async () => { /* Logic hidden */ };
 
-// --- SCHEDULES ---
+// --- SCHEDULES (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
 cron.schedule('0 */4 * * *', runLiquidationWatch);
 cron.schedule('*/15 * * * *', runPriceWatchdog);
@@ -155,11 +129,13 @@ cron.schedule('0 12 * * 1-5', runLondonHandover);
 cron.schedule('30 13 * * 1-5', runMorningBrief);
 cron.schedule('30 14 * * 1-5', () => runMarketDesk(true));
 cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
-cron.schedule('0 1 * * *', runFearGreed);
+// UPDATED: Fear & Greed now runs at 8:00 AM UTC (Safe Time)
+cron.schedule('0 8 * * *', runFearGreed);
 cron.schedule('0 19 * * 0', async () => { await runWeeklyWrap(); weeklyMemory = []; });
 
-app.listen(port, () => console.log(`Oasis Terminal v3.1 Running`));
+app.listen(port, () => console.log(`Oasis Terminal v3.2 Running`));
 
 // --- TEST ROUTES ---
-app.get('/test-liq', async (req, res) => { await runLiquidationWatch(); res.send("Liquidation Test Sent"); });
-app.get('/test-wrap', async (req, res) => { weeklyMemory=[{title:"Test",link:"#"}]; await runWeeklyWrap(); res.send("Wrap Test Sent"); });
+app.get('/test-sentiment', async (req, res) => { await runFearGreed(); res.send("Sentiment Triggered"); });
+app.get('/test-liq', async (req, res) => { await runLiquidationWatch(); res.send("Liquidation Triggered"); });
+app.get('/test-wrap', async (req, res) => { weeklyMemory=[{title:"Test",link:"#"}]; await runWeeklyWrap(); res.send("Wrap Triggered"); });
