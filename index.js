@@ -284,7 +284,7 @@ const runKnowledgeDrop = async () => {
     });
     const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (text) {
-      await axios.post(process.env.WEBHOOK_MACRO, { username: "OASIS | Academy", avatar_url: BOT_AVATAR, embeds: [{ title: "📖 KNOWLEDGE DROP", description: text, color: 16777215, footer: { text: "Education • Oasis Terminal" } }] });
+      await axios.post(process.env.WEBHOOK_ACADEMY, { username: "OASIS | Academy", avatar_url: BOT_AVATAR, embeds: [{ title: "📖 KNOWLEDGE DROP", description: text, color: 16777215, footer: { text: "Education • Oasis Terminal" } }] });
     }
   } catch (e) {}
 };
