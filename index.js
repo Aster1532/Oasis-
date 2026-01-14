@@ -291,18 +291,7 @@ const runKnowledgeDrop = async () => {
   } catch (e) {}
 };
 
-// --- MODULE 10: ALTCOIN DISCOVERY ---
-const runAltcoinDiscovery = async () => {
-  console.log('💎 Scanning for Altcoin Gems...');
-  try {
-    const prompt = `Altcoin Analyst. Search for 3 trending altcoins. For each: 1. Asset Name. 2. Catalyst. 3. Sentiment. Format: Professional bullets. No intro.`;
-    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, { contents: [{ parts: [{ text: "Find 3 altcoins." }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }] });
-    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text) { await axios.post(process.env.WEBHOOK_ALT, { username: "OASIS | Gem Hunter", avatar_url: BOT_AVATAR, embeds: [{ title: "💎 ALTCOIN DISCOVERY & NARRATIVES", description: text, color: 10181046, footer: { text: GEM_FOOTER } }] }); }
-  } catch (e) {}
-};
-
-// --- MODULE 11: WHALE MOVEMENT ---
+// --- MODULE 10: WHALE MOVEMENT ---
 const runWhaleMovement = async () => {
   console.log('🐋 Scanning for Whale Transfers...');
   try {
@@ -349,7 +338,6 @@ app.listen(port, () => console.log(`Oasis Terminal v3.9 Fully Operational`));
 
 // --- TEST ROUTES ---
 app.get('/test-whale', async (req, res) => { await runWhaleMovement(); res.send("Whale Move Triggered"); });
-app.get('/test-gem', async (req, res) => { await runAltcoinDiscovery(); res.send("Gem Hunter Triggered"); });
 app.get('/test-sentiment', async (req, res) => { await runFearGreed(); res.send("Sentiment Triggered"); });
 app.get('/test-liq', async (req, res) => { await runLiquidationWatch(); res.send("Liquidation Triggered"); });
 app.get('/test-wrap', async (req, res) => { weeklyMemory=[{title:"Test Headline",link:"#"}]; await runWeeklyWrap(); res.send("Wrap Triggered"); });
