@@ -298,7 +298,7 @@ const runAltcoinDiscovery = async () => {
     const prompt = `Altcoin Analyst. Search for 3 trending altcoins. For each: 1. Asset Name. 2. Catalyst. 3. Sentiment. Format: Professional bullets. No intro.`;
     const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, { contents: [{ parts: [{ text: "Find 3 altcoins." }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }] });
     const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text) { await axios.post(process.env.WEBHOOK_CRYPTO, { username: "OASIS | Gem Hunter", avatar_url: BOT_AVATAR, embeds: [{ title: "💎 ALTCOIN DISCOVERY & NARRATIVES", description: text, color: 10181046, footer: { text: GEM_FOOTER } }] }); }
+    if (text) { await axios.post(process.env.WEBHOOK_ALT, { username: "OASIS | Gem Hunter", avatar_url: BOT_AVATAR, embeds: [{ title: "💎 ALTCOIN DISCOVERY & NARRATIVES", description: text, color: 10181046, footer: { text: GEM_FOOTER } }] }); }
   } catch (e) {}
 };
 
@@ -322,7 +322,7 @@ const runWhaleMovement = async () => {
     const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (text && text.length > 20) {
-      await axios.post(process.env.WEBHOOK_ALT, { 
+      await axios.post(process.env.WEBHOOK_WHALE, { 
           username: "OASIS | Whale Watch", 
           avatar_url: BOT_AVATAR, 
           embeds: [{ title: "🐋 WHALE MOVEMENT ALERT", description: text, color: 3066993, footer: { text: WHALE_FOOTER } }] 
