@@ -286,7 +286,7 @@ const runKnowledgeDrop = async () => {
     });
     const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (text) {
-      await axios.post(process.env.WEBHOOK_MACRO, { username: "OASIS | Academy", avatar_url: BOT_AVATAR, embeds: [{ title: "📖 KNOWLEDGE DROP", description: text, color: 16777215, footer: { text: "Education • Oasis Terminal" } }] });
+      await axios.post(process.env.WEBHOOK_ACADEMY, { username: "OASIS | Academy", avatar_url: BOT_AVATAR, embeds: [{ title: "📖 KNOWLEDGE DROP", description: text, color: 16777215, footer: { text: "Education • Oasis Terminal" } }] });
     }
   } catch (e) {}
 };
@@ -330,7 +330,7 @@ cron.schedule('0 12 * * 1-5', runLondonHandover);
 cron.schedule('30 13 * * 1-5', runMorningBrief);
 cron.schedule('30 14 * * 1-5', () => runMarketDesk(true));
 cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
-cron.schedule('0 8 * * *', runFearGreed);
+cron.schedule('0 6 * * *', runFearGreed);
 cron.schedule('0 19 * * 0', async () => { await runWeeklyWrap(); weeklyMemory = []; });
 cron.schedule('0 16 * * *', runAltcoinDiscovery);
 
