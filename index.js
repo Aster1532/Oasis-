@@ -201,63 +201,91 @@ const runLondonHandover = async () => {
   } catch (e) {}
 };
 
-// --- MODULE 9: KNOWLEDGE DROP ---
+// --- MODULE 9: KNOWLEDGE DROP (INFINITE VARIETY) ---
 const runKnowledgeDrop = async () => {
+  console.log('📖 Generating Knowledge Drop...');
   try {
-    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, { contents: [{ parts: [{ text: "Explain trading term." }] }] });
+    // UPDATED: Broad Category Selection for Infinite Variety
+    const prompt = `You are a Senior Trading Mentor. 
+    Select ONE advanced trading concept from these categories:
+    [Smart Money Concepts (SMC), Wyckoff Theory, Order Flow, Market Structure, Risk Management, Derivatives, On-Chain Analysis].
+    
+    Do NOT select basic terms (No "Spread", "Bid/Ask", "Bull Market").
+    
+    Explain it to a trader.
+    Format:
+    **[Term Name]**
+    • **Definition:** [Simple 1 sentence definition]
+    • **How to Use:** [Practical tip for finding it on a chart]
+    • **Fun Fact:** [A brief interesting fact or detail]
+    
+    STRICT RULES:
+    - Do NOT ask questions.
+    - Output ONLY the formatted text.`;
+
+    const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      contents: [{ parts: [{ text: "Teach me a trading term." }] }],
+      systemInstruction: { parts: [{ text: prompt }] }
+    });
+    
     const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text) { await axios.post(process.env.WEBHOOK_ACADEMY, { username: "OASIS | Academy", avatar_url: BOT_AVATAR, embeds: [{ title: "📖 KNOWLEDGE DROP", description: text, color: 16777215, footer: { text: "Education • Oasis Terminal" } }] }); }
+    if (text) {
+      await axios.post(process.env.WEBHOOK_ACADEMY, { 
+          username: "OASIS | Academy", 
+          avatar_url: BOT_AVATAR, 
+          embeds: [{ title: "📖 KNOWLEDGE DROP", description: text, color: 16777215, footer: { text: "Education • Oasis Terminal" } }] 
+      });
+    }
   } catch (e) {}
 };
 
-// --- MODULE 10: WHALE MOVEMENT (FIXED DEDUP & NULL) ---
+// --- MODULE 10: WHALE MOVEMENT (FIXED: Color & Spam) ---
 const runWhaleMovement = async () => {
   console.log('🐋 Scanning for Whale Transfers...');
   try {
     const prompt = `You are a Whale Tracker. Search for large crypto transfers (Last 2 hours) from Whale Alert.
-    Strict Criteria:
-    - BTC > 1,000 transferred
-    - ETH > 10,000 transferred
-    - SOL > 100,000 transferred
+    Strict Criteria: BTC > 1,000, ETH > 10,000, SOL > 100,000.
     
-    If NO transfers meeting this criteria are found, output ONLY the single word: NULL.
-    Do NOT output "No major moves found". Do NOT output conversational text.
+    Format:
+    • **Asset**: [Amount] [Ticker] moved from [Wallet/Exchange] to [Wallet/Exchange].
+    • **Implication**: [One phrase: "Potential Dump", "Accumulation", "Exchange Inflow", or "Exchange Outflow"].
     
-    If matches found, Format:
-    • **Asset**: [Amount] [Ticker] moved from [Wallet] to [Wallet].
-    • **Implication**: [One sentence analysis].`;
+    STRICT RULES:
+    - If NO transfers match the size, output EXACTLY: NULL
+    - Do NOT write "No major moves found".
+    - Do NOT output intro/outro conversational text.`;
 
     const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, { contents: [{ parts: [{ text: "Scan for Whale Transfers." }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }] });
     const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     
-    // 1. Check for NULL or Empty
-    if (text.includes("NULL") || text.length < 10) {
-        console.log("No Whale Moves Found (Filtered by AI)");
-        return;
-    }
+    // 1. Anti-Spam (Stops "No major moves" chat)
+    if (text.includes("NULL") || !text.includes("**Asset**")) return;
 
-    // 2. Numeric Deduplication Logic
-    // Extract numbers (e.g. "1,305") to create a unique ID for this specific transfer amount
+    // 2. Numeric Deduplication
     const numbers = text.match(/\d+(?:,\d+)*(?:\.\d+)?/g);
-    const assetId = numbers ? numbers[0].replace(/,/g, '') : "unknown"; // "1305"
+    const assetId = numbers ? numbers[0].replace(/,/g, '') : "unknown"; 
     
-    if (whaleHistory.includes(assetId)) {
-        console.log(`Skipping Duplicate Whale Alert for amount: ${assetId}`);
-        return;
+    if (whaleHistory.includes(assetId)) return;
+
+    // 3. Dynamic Color Logic
+    let color = 16777215; // White Default
+    const lower = text.toLowerCase();
+    if (lower.includes("dump") || lower.includes("inflow") || lower.includes("exchange") || lower.includes("sell")) {
+        color = 15158332; // RED (Danger)
+    } else if (lower.includes("accumulation") || lower.includes("outflow") || lower.includes("staking") || lower.includes("buy")) {
+        color = 3066993; // GREEN (Safe)
     }
 
-    // 3. Send Alert
     await axios.post(process.env.WEBHOOK_WHALE, { 
         username: "OASIS | Whale Tracker", 
         avatar_url: BOT_AVATAR, 
-        embeds: [{ title: "🐋 WHALE MOVEMENT ALERT", description: text, color: 3066993, footer: { text: WHALE_FOOTER } }] 
+        embeds: [{ title: "🐋 WHALE MOVEMENT ALERT", description: text, color: color, footer: { text: WHALE_FOOTER } }] 
     });
 
-    // 4. Update History
     whaleHistory.push(assetId);
     if (whaleHistory.length > 20) whaleHistory.shift();
 
-  } catch (e) { console.error("Whale Move Error:", e.message); }
+  } catch (e) {}
 };
 // --- SCHEDULES (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
@@ -272,7 +300,7 @@ cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
 cron.schedule('0 6 * * *', runFearGreed);
 cron.schedule('0 19 * * 0', async () => { await runWeeklyWrap(); weeklyMemory = []; });
 
-app.listen(port, () => console.log(`Oasis Terminal v4.4 Fully Operational`));
+app.listen(port, () => console.log(`Oasis Terminal v4.7 Fully Operational`));
 
 // --- TEST ROUTES ---
 app.get('/test-whale', async (req, res) => { await runWhaleMovement(); res.send("Whale Move Triggered"); });
