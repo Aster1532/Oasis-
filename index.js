@@ -50,9 +50,8 @@ const extractImage = (item) => {
   return null;
 };
 
-// --- MODULE 1: REAL-TIME ENGINE (Spam Filtered) ---
+// --- MODULE 1: REAL-TIME ENGINE (IRON DOME FILTER) ---
 const runRealTimeEngine = async () => {
-  // REMOVED CryptoPanic (Too noisy)
   const feeds = [
     "https://cointelegraph.com/rss", 
     "https://www.cnbc.com/id/10000664/device/rss/rss.html", 
@@ -62,19 +61,32 @@ const runRealTimeEngine = async () => {
   for (const url of feeds) {
     try {
       const feed = await parser.parseURL(url);
-      // REDUCED limit to 2 items per cycle to prevent flooding
       for (const item of feed.items.slice(0, 2)) {
         const headline = item.title || "";
         const cleanTitle = headline.toLowerCase().replace(/[^a-z0-9]/g, '');
         if (sentHistory.includes(cleanTitle)) continue;
 
-        // STRICTER KEYWORDS: Removed "Crypto", "Blockchain", "Altcoin" to reduce noise.
-        const isMacro = /(FED|CPI|Inflation|Rates|FOMC|Powell|Recession|Hike|Cut|GDP|Treasury|NFP|BRICS|DXY|Federal Reserve|Gold|Silver|Central Bank|ECB|Debt|Yield|War|Conflict|Oil|Energy)/i.test(headline);
-        const isCrypto = /(Bitcoin|BTC|ETH|Ethereum|Solana|SOL|XRP|Ripple|Binance|BlackRock|Fidelity|ETF|Stablecoin|Tether|USDC|Coinbase|SEC|Regulation|Gensler)/i.test(headline);
+        // 1. THE IRON DOME (SPAM BLOCKER)
+        // Blocks: Memes, Hacks, Low-Tier Alts, NFTs, Gaming
+        const isSpam = /(Shiba|Bonk|Pepe|Floki|Doge|Meme|NFT|Airdrop|Gaming|Metaverse|Hack|Exploit|Ransomware|Scam|Phishing|Cardano|ADA|Avalanche|AVAX|Tron|TRX|Mantle|Phantom|Pancake|CAKE|Polygon|MATIC|Polkadot|DOT|Litecoin|LTC)/i.test(headline);
+        
+        if (isSpam) {
+            sentHistory.push(cleanTitle); // Mark as read so we don't process it again
+            continue; // SKIP THIS ITEM
+        }
+
+        // 2. STRICT MACRO (Must be Institutional)
+        // Removed generic words like "Rates", "Cut", "War" that triggered on crypto news
+        const isMacro = /(FED|CPI|PPI|FOMC|Powell|Recession|Rate Hike|Rate Cut|Interest Rate|Treasury|NFP|BRICS|DXY|Federal Reserve|Central Bank|ECB|Bond Yield|Geopolitics|Trade War|Oil Price|Stimulus)/i.test(headline);
+
+        // 3. STRICT CRYPTO (High Signal Only)
+        // Only BTC, ETH, SOL, Stablecoins, and Major Entities
+        const isCrypto = /(Bitcoin|BTC|ETH|Ethereum|Solana|SOL|BlackRock|Fidelity|ETF|Stablecoin|USDC|Coinbase|SEC|Gary Gensler|Binance|MicroStrategy)/i.test(headline);
 
         if (isMacro || isCrypto) {
+          // Color Logic
           const bullish = /(Cut|Approval|Pump|Green|Bull|Rally|ETF|Adoption|Inflow|Gains|Record|Breakout|Whale Buy)/i.test(headline);
-          const bearish = /(Hike|Panic|Crash|Dump|Drop|Inflation|Recession|SEC|Lawsuit|Hack|Outflow|Losses|War|Conflict)/i.test(headline);
+          const bearish = /(Hike|Panic|Crash|Dump|Drop|Recession|SEC|Lawsuit|Outflow|Losses|Conflict)/i.test(headline);
           let color = 16777215;
           if (bullish) color = 3066993; else if (bearish) color = 15158332;
 
@@ -85,9 +97,11 @@ const runRealTimeEngine = async () => {
             username: config.name, avatar_url: BOT_AVATAR, content: `<@&${config.ping}>`,
             embeds: [{ title: `🚨 ${headline}`, description: (item.contentSnippet || "").substring(0, 400), url: item.link, color: color, image: extractImage(item) ? { url: extractImage(item) } : null, footer: { text: config.footer } }]
           });
+          
           weeklyMemory.push({ title: headline, link: item.link });
           narrativeMemory.push(headline);
         }
+        
         sentHistory.push(cleanTitle);
         if (sentHistory.length > 500) sentHistory.shift();
       }
