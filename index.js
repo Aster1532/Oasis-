@@ -210,35 +210,55 @@ const runKnowledgeDrop = async () => {
   } catch (e) {}
 };
 
-// --- MODULE 10: WHALE MOVEMENT ---
+// --- MODULE 10: WHALE MOVEMENT (FIXED DEDUP & NULL) ---
 const runWhaleMovement = async () => {
   console.log('🐋 Scanning for Whale Transfers...');
   try {
-    const prompt = `You are a Whale Tracker. Search for large crypto transfers (Last 2 hours) from Whale Alert or major explorers.
-    Criteria:
+    const prompt = `You are a Whale Tracker. Search for large crypto transfers (Last 2 hours) from Whale Alert.
+    Strict Criteria:
     - BTC > 1,000 transferred
     - ETH > 10,000 transferred
     - SOL > 100,000 transferred
     
-    Format:
-    • **Asset**: [Amount] moved from [Wallet/Exchange] to [Wallet/Exchange].
-    • **Implication**: (e.g. "Potential Dump" or "Accumulation").
+    If NO transfers meeting this criteria are found, output ONLY the single word: NULL.
+    Do NOT output "No major moves found". Do NOT output conversational text.
     
-    If no major moves found, output nothing.`;
+    If matches found, Format:
+    • **Asset**: [Amount] [Ticker] moved from [Wallet] to [Wallet].
+    • **Implication**: [One sentence analysis].`;
 
     const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, { contents: [{ parts: [{ text: "Scan for Whale Transfers." }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }] });
-    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     
-    if (text && text.length > 20) {
-      await axios.post(process.env.WEBHOOK_WHALE, { 
-          username: "OASIS | Whale Tracker", 
-          avatar_url: BOT_AVATAR, 
-          embeds: [{ title: "🐋 WHALE MOVEMENT ALERT", description: text, color: 3066993, footer: { text: WHALE_FOOTER } }] 
-      });
+    // 1. Check for NULL or Empty
+    if (text.includes("NULL") || text.length < 10) {
+        console.log("No Whale Moves Found (Filtered by AI)");
+        return;
     }
+
+    // 2. Numeric Deduplication Logic
+    // Extract numbers (e.g. "1,305") to create a unique ID for this specific transfer amount
+    const numbers = text.match(/\d+(?:,\d+)*(?:\.\d+)?/g);
+    const assetId = numbers ? numbers[0].replace(/,/g, '') : "unknown"; // "1305"
+    
+    if (whaleHistory.includes(assetId)) {
+        console.log(`Skipping Duplicate Whale Alert for amount: ${assetId}`);
+        return;
+    }
+
+    // 3. Send Alert
+    await axios.post(process.env.WEBHOOK_WHALE, { 
+        username: "OASIS | Whale Tracker", 
+        avatar_url: BOT_AVATAR, 
+        embeds: [{ title: "🐋 WHALE MOVEMENT ALERT", description: text, color: 3066993, footer: { text: WHALE_FOOTER } }] 
+    });
+
+    // 4. Update History
+    whaleHistory.push(assetId);
+    if (whaleHistory.length > 20) whaleHistory.shift();
+
   } catch (e) { console.error("Whale Move Error:", e.message); }
 };
-
 // --- SCHEDULES (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
 cron.schedule('0 */4 * * *', runLiquidationWatch); // Heatmaps every 4h
@@ -252,7 +272,7 @@ cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
 cron.schedule('0 6 * * *', runFearGreed);
 cron.schedule('0 19 * * 0', async () => { await runWeeklyWrap(); weeklyMemory = []; });
 
-app.listen(port, () => console.log(`Oasis Terminal v4.3 Fully Operational`));
+app.listen(port, () => console.log(`Oasis Terminal v4.4 Fully Operational`));
 
 // --- TEST ROUTES ---
 app.get('/test-whale', async (req, res) => { await runWhaleMovement(); res.send("Whale Move Triggered"); });
