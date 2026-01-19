@@ -50,19 +50,27 @@ const extractImage = (item) => {
   return null;
 };
 
-// --- MODULE 1: REAL-TIME ENGINE ---
+// --- MODULE 1: REAL-TIME ENGINE (Spam Filtered) ---
 const runRealTimeEngine = async () => {
-  const feeds = ["https://cointelegraph.com/rss", "https://cryptopanic.com/news/rss/", "https://www.cnbc.com/id/10000664/device/rss/rss.html", "https://feeds.feedburner.com/coindesk"];
+  // REMOVED CryptoPanic (Too noisy)
+  const feeds = [
+    "https://cointelegraph.com/rss", 
+    "https://www.cnbc.com/id/10000664/device/rss/rss.html", 
+    "https://feeds.feedburner.com/coindesk"
+  ];
+  
   for (const url of feeds) {
     try {
       const feed = await parser.parseURL(url);
-      for (const item of feed.items.slice(0, 5)) {
+      // REDUCED limit to 2 items per cycle to prevent flooding
+      for (const item of feed.items.slice(0, 2)) {
         const headline = item.title || "";
         const cleanTitle = headline.toLowerCase().replace(/[^a-z0-9]/g, '');
         if (sentHistory.includes(cleanTitle)) continue;
 
+        // STRICTER KEYWORDS: Removed "Crypto", "Blockchain", "Altcoin" to reduce noise.
         const isMacro = /(FED|CPI|Inflation|Rates|FOMC|Powell|Recession|Hike|Cut|GDP|Treasury|NFP|BRICS|DXY|Federal Reserve|Gold|Silver|Central Bank|ECB|Debt|Yield|War|Conflict|Oil|Energy)/i.test(headline);
-        const isCrypto = /(Bitcoin|BTC|ETH|Ethereum|Solana|SOL|XRP|Ripple|Binance|BNB|ETF|SATS|Stablecoin|Tether|USDC|Coinbase|Blockchain|Crypto|Altcoin)/i.test(headline);
+        const isCrypto = /(Bitcoin|BTC|ETH|Ethereum|Solana|SOL|XRP|Ripple|Binance|BlackRock|Fidelity|ETF|Stablecoin|Tether|USDC|Coinbase|SEC|Regulation|Gensler)/i.test(headline);
 
         if (isMacro || isCrypto) {
           const bullish = /(Cut|Approval|Pump|Green|Bull|Rally|ETF|Adoption|Inflow|Gains|Record|Breakout|Whale Buy)/i.test(headline);
