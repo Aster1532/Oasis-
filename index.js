@@ -350,7 +350,7 @@ const runForexWatchdog = async () => {
                     const direction = price > prev ? "📈 BREAKOUT" : "📉 BREAKDOWN";
                     const color = price > prev ? 3066993 : 15158332;
 
-                    await axios.post(process.env.WEBHOOK_FOREX, {
+                    await axios.post(process.env.WEBHOOK_FXALERT, {
                         username: "OASIS | FX Watchdog",
                         avatar_url: BOT_AVATAR,
                         embeds: [{
