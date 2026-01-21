@@ -35,9 +35,12 @@ const WHALE_FOOTER = "Large Scale On-Chain Alert • Oasis Terminal";
 
 // --- STATE MANAGEMENT ---
 let sentHistory = []; 
+let whaleHistory = []; 
 let weeklyMemory = []; 
+let forexMemory = [];  // <--- COPY THIS NEW LINE
 let narrativeMemory = [];
 let lastPrices = { bitcoin: 0, ethereum: 0, solana: 0, binancecoin: 0, gold: 0, silver: 0 };
+let lastForexPrices = {};
 
 // --- HELPER: IMAGE HUNTER ---
 const extractImage = (item) => {
@@ -50,7 +53,7 @@ const extractImage = (item) => {
   return null;
 };
 
-// --- MODULE 1: REAL-TIME ENGINE (IRON DOME FILTER) ---
+// --- MODULE 1: REAL-TIME ENGINE (Updated to Capture Forex Memory) ---
 const runRealTimeEngine = async () => {
   const feeds = [
     "https://cointelegraph.com/rss", 
@@ -66,40 +69,47 @@ const runRealTimeEngine = async () => {
         const cleanTitle = headline.toLowerCase().replace(/[^a-z0-9]/g, '');
         if (sentHistory.includes(cleanTitle)) continue;
 
-        // 1. THE IRON DOME (SPAM BLOCKER)
-        // Blocks: Memes, Hacks, Low-Tier Alts, NFTs, Gaming
+        // 1. IRON DOME (SPAM BLOCKER)
         const isSpam = /(Shiba|Bonk|Pepe|Floki|Doge|Meme|NFT|Airdrop|Gaming|Metaverse|Hack|Exploit|Ransomware|Scam|Phishing|Cardano|ADA|Avalanche|AVAX|Tron|TRX|Mantle|Phantom|Pancake|CAKE|Polygon|MATIC|Polkadot|DOT|Litecoin|LTC)/i.test(headline);
         
         if (isSpam) {
-            sentHistory.push(cleanTitle); // Mark as read so we don't process it again
-            continue; // SKIP THIS ITEM
+            sentHistory.push(cleanTitle); 
+            continue; 
         }
 
-        // 2. STRICT MACRO (Must be Institutional)
-        // Removed generic words like "Rates", "Cut", "War" that triggered on crypto news
-        const isMacro = /(FED|CPI|PPI|FOMC|Powell|Recession|Rate Hike|Rate Cut|Interest Rate|Treasury|NFP|BRICS|DXY|Federal Reserve|Central Bank|ECB|Bond Yield|Geopolitics|Trade War|Oil Price|Stimulus)/i.test(headline);
-
-        // 3. STRICT CRYPTO (High Signal Only)
-        // Only BTC, ETH, SOL, Stablecoins, and Major Entities
+        // 2. CATEGORY DETECTION
+        const isMacro = /(CPI|PPI|FOMC|Powell|Recession|Rate Hike|Rate Cut|Interest Rate|Treasury|NFP|BRICS|Federal Reserve|Central Bank|ECB|Bond Yield|Geopolitics|Trade War|Oil Price|Stimulus)/i.test(headline);
         const isCrypto = /(Bitcoin|BTC|ETH|Ethereum|Solana|SOL|BlackRock|Fidelity|ETF|Stablecoin|USDC|Coinbase|SEC|Gary Gensler|Binance|MicroStrategy)/i.test(headline);
+        const isForex = /(EUR|GBP|JPY|USD|CAD|AUD|Gold|Silver|XAU|XAG|DXY|Forex|FX|BOJ|BOE|Lagarde|Ueda|Bailey|Dollar|Yen|Euro|Pound)/i.test(headline);
 
-        if (isMacro || isCrypto) {
-          // Color Logic
+        // 3. ROUTING & MEMORY
+        if (isMacro || isCrypto || isForex) {
+          
+          // Determine Color
           const bullish = /(Cut|Approval|Pump|Green|Bull|Rally|ETF|Adoption|Inflow|Gains|Record|Breakout|Whale Buy)/i.test(headline);
-          const bearish = /(Hike|Panic|Crash|Dump|Drop|Recession|SEC|Lawsuit|Outflow|Losses|Conflict)/i.test(headline);
+          const bearish = /(Hike|Panic|Crash|Dump|Drop|Inflation|Recession|SEC|Lawsuit|Hack|Outflow|Losses|War|Conflict)/i.test(headline);
           let color = 16777215;
           if (bullish) color = 3066993; else if (bearish) color = 15158332;
 
+          // Send Alert (Real-time)
           let config = isCrypto ? { webhook: process.env.WEBHOOK_CRYPTO, name: "OASIS | Crypto Intel", ping: process.env.ROLE_ID_ALPHA, footer: CRYPTO_FOOTER }
                                 : { webhook: process.env.WEBHOOK_MACRO, name: "OASIS | Macro Terminal", ping: process.env.ROLE_ID_MACRO, footer: MACRO_FOOTER };
 
-          await axios.post(config.webhook, {
-            username: config.name, avatar_url: BOT_AVATAR, content: `<@&${config.ping}>`,
-            embeds: [{ title: `🚨 ${headline}`, description: (item.contentSnippet || "").substring(0, 400), url: item.link, color: color, image: extractImage(item) ? { url: extractImage(item) } : null, footer: { text: config.footer } }]
-          });
-          
-          weeklyMemory.push({ title: headline, link: item.link });
-          narrativeMemory.push(headline);
+          // Only send alert if it matches Crypto or Macro (Forex often fits in Macro for alerts)
+          if (isCrypto || isMacro) {
+             await axios.post(config.webhook, {
+                username: config.name, avatar_url: BOT_AVATAR, content: `<@&${config.ping}>`,
+                embeds: [{ title: `🚨 ${headline}`, description: (item.contentSnippet || "").substring(0, 400), url: item.link, color: color, image: extractImage(item) ? { url: extractImage(item) } : null, footer: { text: config.footer } }]
+             });
+             // Save to General Weekly Memory
+             weeklyMemory.push({ title: headline, link: item.link });
+             narrativeMemory.push(headline);
+          }
+
+          // <--- NEW: Save to FOREX MEMORY if applicable
+          if (isForex || (isMacro && /(Gold|Silver|DXY|Yield)/i.test(headline))) {
+              forexMemory.push({ title: headline, link: item.link });
+          }
         }
         
         sentHistory.push(cleanTitle);
@@ -309,6 +319,108 @@ const runWhaleMovement = async () => {
 
   } catch (e) {}
 };
+
+// --- MODULE 11: FOREX WATCHDOG ---
+const runForexWatchdog = async () => {
+    try {
+        const prompt = `Fetch current prices for: Gold (XAU/USD), Silver (XAG/USD), EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD. 
+        Output STRICT JSON format: 
+        { "XAU/USD": 2350.50, "XAG/USD": 29.50, "EUR/USD": 1.0850, "GBP/USD": 1.2750, "USD/JPY": 155.00, "AUD/USD": 0.6650, "USD/CAD": 1.3650 }`;
+        
+        const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+            contents: [{ parts: [{ text: "Get Forex Prices" }] }],
+            systemInstruction: { parts: [{ text: prompt }] },
+            tools: [{ "google_search": {} }],
+            generationConfig: { responseMimeType: "application/json" }
+        });
+
+        const data = JSON.parse(res.data.candidates[0].content.parts[0].text);
+        const steps = { "XAU/USD": 25, "XAG/USD": 0.50, "USD/JPY": 0.50, "default": 0.0050 };
+
+        for (const [pair, price] of Object.entries(data)) {
+            const step = steps[pair] || steps["default"];
+            const prev = lastForexPrices[pair] || 0;
+
+            if (prev > 0) {
+                const prevLevel = Math.floor(prev / step);
+                const currLevel = Math.floor(price / step);
+
+                if (prevLevel !== currLevel) {
+                    const crossed = (currLevel * step).toFixed(pair.includes("JPY") || pair.includes("XAU") ? 2 : 4);
+                    const direction = price > prev ? "📈 BREAKOUT" : "📉 BREAKDOWN";
+                    const color = price > prev ? 3066993 : 15158332;
+
+                    await axios.post(process.env.WEBHOOK_FOREX, {
+                        username: "OASIS | FX Watchdog",
+                        avatar_url: BOT_AVATAR,
+                        embeds: [{
+                            title: `${direction}: ${pair}`,
+                            description: `**${pair}** has crossed the **${crossed}** psychological level.\nCurrent Price: **${price}**`,
+                            color: color,
+                            footer: { text: FOREX_FOOTER }
+                        }]
+                    });
+                }
+            }
+            lastForexPrices[pair] = price;
+        }
+    } catch (e) {}
+};
+
+// --- MODULE 12: FOREX WEEKLY DIGEST (UPDATED: Memory + Sources) ---
+const runForexWeekly = async () => {
+    console.log('💱 Generating FX Weekly...');
+    
+    // 1. Check Data Store (Memory)
+    if (forexMemory.length === 0) {
+        // Fallback to Live Search if memory is empty
+        try {
+            const prompt = `Search for major Forex news this week (EUR, USD, GBP, JPY, Gold). Summary 3 bullets.`;
+            const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, { contents: [{ parts: [{ text: "Weekly FX" }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }] });
+            const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if(text) {
+                 await axios.post(process.env.WEBHOOK_FOREX, {
+                    username: "OASIS | FX Intelligence",
+                    avatar_url: BOT_AVATAR,
+                    embeds: [{ title: "💱 WEEKLY FOREX OUTLOOK", description: text, color: 16777215, image: { url: WEEKLY_HEADER_IMG }, footer: { text: "Institutional FX Strategy • Oasis Terminal" } }]
+                });
+            }
+        } catch(e) {}
+        return;
+    }
+
+    // 2. Generate Report from Memory (with Sources)
+    try {
+        const titles = forexMemory.map(i => i.title).join("\n");
+        const prompt = `Senior Forex Analyst. Write a Weekly Outlook based on these headlines:\n${titles}\n\nFormat: 3 Professional Bullets with bold headers. Focus on Central Banks, Yields, and DXY.`;
+
+        const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+            contents: [{ parts: [{ text: "Generate Forex Weekly" }] }],
+            systemInstruction: { parts: [{ text: prompt }] }
+        });
+
+        const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        // Add Links Section
+        const sources = forexMemory.slice(-5).map(i => `• [${i.title}](${i.link})`).join("\n");
+
+        if (text) {
+            await axios.post(process.env.WEBHOOK_FOREX, {
+                username: "OASIS | FX Intelligence",
+                avatar_url: BOT_AVATAR,
+                embeds: [{
+                    title: "💱 WEEKLY FOREX OUTLOOK",
+                    description: `**Summary:**\n${text}\n\n**Primary Source:**\n${sources}`,
+                    color: 16777215,
+                    image: { url: WEEKLY_HEADER_IMG }, 
+                    footer: { text: "Institutional FX Strategy • Oasis Terminal" }
+                }]
+            });
+        }
+        forexMemory = []; // Clear memory
+    } catch (e) {}
+};
+
 // --- SCHEDULES (UTC) ---
 cron.schedule('*/5 * * * *', runRealTimeEngine);
 cron.schedule('0 */4 * * *', runLiquidationWatch); // Heatmaps every 4h
@@ -321,7 +433,8 @@ cron.schedule('30 14 * * 1-5', () => runMarketDesk(true));
 cron.schedule('0 21 * * 1-5', () => runMarketDesk(false));
 cron.schedule('0 6 * * *', runFearGreed);
 cron.schedule('0 19 * * 0', async () => { await runWeeklyWrap(); weeklyMemory = []; });
-
+cron.schedule('*/30 * * * *', runForexWatchdog);
+cron.schedule('0 20 * * 0', runForexWeekly);
 app.listen(port, () => console.log(`Oasis Terminal v4.7 Fully Operational`));
 
 // --- TEST ROUTES ---
@@ -331,3 +444,17 @@ app.get('/test-liq', async (req, res) => { await runLiquidationWatch(); res.send
 app.get('/test-wrap', async (req, res) => { weeklyMemory=[{title:"Test Headline",link:"#"}]; await runWeeklyWrap(); res.send("Wrap Triggered"); });
 app.get('/test-desk', async (req, res) => { await runMarketDesk(true); res.send("Desk Triggered"); });
 app.get('/test-brief', async (req, res) => { await runMorningBrief(); res.send("Brief Triggered"); });
+app.get('/test-forex', async (req, res) => { 
+    await runForexWatchdog(); 
+    res.send("FX Watchdog Triggered (Check Discord for Breakout/Breakdown alerts)"); 
+});
+app.get('/test-forex-weekly', async (req, res) => { 
+    // Seed fake memory to test formatting instantly
+    forexMemory = [
+        { title: "Gold Breaks $2,400 Amid Geopolitical Tensions", link: "https://cnbc.com" },
+        { title: "ECB Signals Rate Cut for June as Inflation Cools", link: "https://bloomberg.com" },
+        { title: "USD/JPY Hits 155.00 on Strong US Jobs Data", link: "https://reuters.com" }
+    ];
+    await runForexWeekly(); 
+    res.send("FX Weekly Report Triggered (Check Discord)"); 
+});
