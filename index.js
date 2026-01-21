@@ -446,10 +446,7 @@ app.get('/test-liq', async (req, res) => { await runLiquidationWatch(); res.send
 app.get('/test-wrap', async (req, res) => { weeklyMemory=[{title:"Test Headline",link:"#"}]; await runWeeklyWrap(); res.send("Wrap Triggered"); });
 app.get('/test-desk', async (req, res) => { await runMarketDesk(true); res.send("Desk Triggered"); });
 app.get('/test-brief', async (req, res) => { await runMorningBrief(); res.send("Brief Triggered"); });
-app.get('/test-forex', async (req, res) => { 
-    await runForexWatchdog(); 
-    res.send("FX Watchdog Triggered (Check Discord for Breakout/Breakdown alerts)"); 
-});
+app.get('/test-forex', async (req, res) => { await runForexWatchdog(); res.send("FX Watchdog Triggered (Check Discord for Breakout/Breakdown alerts)"); });
 app.get('/test-forex-weekly', async (req, res) => { 
     // Seed fake memory to test formatting instantly
     forexMemory = [
