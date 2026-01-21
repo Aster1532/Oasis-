@@ -369,32 +369,23 @@ const runForexWatchdog = async () => {
     } catch (e) {}
 };
 
-// --- MODULE 12: FOREX WEEKLY DIGEST (UPDATED: Memory + Sources) ---
+// --- MODULE 12: FOREX WEEKLY DIGEST (Final: Memory -> Summary + Sources) ---
 const runForexWeekly = async () => {
     console.log('💱 Generating FX Weekly...');
     
     // 1. Check Data Store (Memory)
     if (forexMemory.length === 0) {
-        // Fallback to Live Search if memory is empty
-        try {
-            const prompt = `Search for major Forex news this week (EUR, USD, GBP, JPY, Gold). Summary 3 bullets.`;
-            const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, { contents: [{ parts: [{ text: "Weekly FX" }] }], systemInstruction: { parts: [{ text: prompt }] }, tools: [{ "google_search": {} }] });
-            const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if(text) {
-                 await axios.post(process.env.WEBHOOK_FOREX, {
-                    username: "OASIS | FX Intelligence",
-                    avatar_url: BOT_AVATAR,
-                    embeds: [{ title: "💱 WEEKLY FOREX OUTLOOK", description: text, color: 16777215, image: { url: WEEKLY_HEADER_IMG }, footer: { text: "Institutional FX Strategy • Oasis Terminal" } }]
-                });
-            }
-        } catch(e) {}
+        console.log("No FX memory found, skipping or using fallback...");
         return;
     }
 
-    // 2. Generate Report from Memory (with Sources)
+    // 2. Generate Report from Memory
     try {
+        // Prepare titles for the AI to analyze
         const titles = forexMemory.map(i => i.title).join("\n");
-        const prompt = `Senior Forex Analyst. Write a Weekly Outlook based on these headlines:\n${titles}\n\nFormat: 3 Professional Bullets with bold headers. Focus on Central Banks, Yields, and DXY.`;
+
+        // The Prompt: Feeds titles, asks for Analysis ONLY
+        const prompt = `Senior Forex Analyst. Analyze these headlines collected over the week:\n${titles}\n\nTask: Write a concise **Weekly Forex Outlook**.\n- Do NOT list the headlines again.\n- Synthesize the data into 3 high-impact bullets with bold headers.\n- Focus on Central Banks, Yields, and DXY context.`;
 
         const res = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${process.env.GEMINI_API_KEY}`, {
             contents: [{ parts: [{ text: "Generate Forex Weekly" }] }],
@@ -403,7 +394,7 @@ const runForexWeekly = async () => {
 
         const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
         
-        // Add Links Section
+        // Generate the Source List (Top 5 links)
         const sources = forexMemory.slice(-5).map(i => `• [${i.title}](${i.link})`).join("\n");
 
         if (text) {
@@ -412,15 +403,15 @@ const runForexWeekly = async () => {
                 avatar_url: BOT_AVATAR,
                 embeds: [{
                     title: "💱 WEEKLY FOREX OUTLOOK",
-                    description: `**Summary:**\n${text}\n\n**Primary Source:**\n${sources}`,
+                    description: `**Summary:**\n${text}\n\n**Primary Sources:**\n${sources}`,
                     color: 16777215,
                     image: { url: WEEKLY_HEADER_IMG }, 
-                    footer: { text: FOREX_FOOTER }
+                    footer: { text: "Institutional FX Strategy • Oasis Terminal" }
                 }]
             });
         }
-        forexMemory = []; // Clear memory
-    } catch (e) {}
+        forexMemory = []; // Clear memory after successful report
+    } catch (e) { console.error("FX Weekly Error:", e.message); }
 };
 
 // --- SCHEDULES (UTC) ---
@@ -446,7 +437,7 @@ app.get('/test-liq', async (req, res) => { await runLiquidationWatch(); res.send
 app.get('/test-wrap', async (req, res) => { weeklyMemory=[{title:"Test Headline",link:"#"}]; await runWeeklyWrap(); res.send("Wrap Triggered"); });
 app.get('/test-desk', async (req, res) => { await runMarketDesk(true); res.send("Desk Triggered"); });
 app.get('/test-brief', async (req, res) => { await runMorningBrief(); res.send("Brief Triggered"); });
-app.get('/test-forex', async (req, res) => { await runForexWatchdog(); res.send("FX Watchdog Triggered (Check Discord for Breakout/Breakdown alerts)"); });
+app.get('/test-Forex', async (req, res) => { await runForexWatchdog(); res.send("FX Watchdog Triggered (Check Discord for Breakout/Breakdown alerts)"); });
 app.get('/test-forex-weekly', async (req, res) => { 
     // Seed fake memory to test formatting instantly
     forexMemory = [
