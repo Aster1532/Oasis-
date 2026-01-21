@@ -32,6 +32,8 @@ const SENTIMENT_FOOTER = "Daily Market Sentiment Update • Oasis Terminal";
 const ALERT_FOOTER = "Institutional Level Alert • Oasis Terminal";
 const LIQ_FOOTER = "Liquidity Flow Analysis • Oasis Terminal";
 const WHALE_FOOTER = "Large Scale On-Chain Alert • Oasis Terminal";
+const FOREX_FOOTER = "Institutional FX Strategy • Oasis Terminal";
+
 
 // --- STATE MANAGEMENT ---
 let sentHistory = []; 
@@ -413,7 +415,7 @@ const runForexWeekly = async () => {
                     description: `**Summary:**\n${text}\n\n**Primary Source:**\n${sources}`,
                     color: 16777215,
                     image: { url: WEEKLY_HEADER_IMG }, 
-                    footer: { text: "Institutional FX Strategy • Oasis Terminal" }
+                    footer: { text: FOREX_FOOTER }
                 }]
             });
         }
