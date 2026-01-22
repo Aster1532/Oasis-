@@ -378,16 +378,28 @@ const runWhaleMovement = async () => {
   } catch (e) { console.error("Whale Error:", e.message); }
 };
 
-// --- MODULE 11: FOREX WATCHDOG ---
+// --- MODULE 11: FOREX WATCHDOG (Fixed JSON Parsing) ---
 const runForexWatchdog = async () => {
+    console.log('💱 Running Forex Watchdog...');
+    if (!process.env.WEBHOOK_FOREX) {
+        console.error("❌ ERROR: WEBHOOK_FOREX is missing in .env");
+        return;
+    }
+
     try {
-        const prompt = "Get Forex Prices for XAU, XAG, EUR, GBP, JPY.";
-        const system = `Output STRICT JSON: 
-        { "XAU/USD": 2350.50, "XAG/USD": 29.50, "EUR/USD": 1.0850, "GBP/USD": 1.2750, "USD/JPY": 155.00, "AUD/USD": 0.6650, "USD/CAD": 1.3650 }`;
+        const prompt = "Get current prices for: Gold (XAU/USD), Silver (XAG/USD), EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD.";
+        const system = `Output STRICT JSON format only. Do not use Markdown. 
+        Example: { "XAU/USD": 2350.50, "XAG/USD": 29.50, "EUR/USD": 1.0850, "GBP/USD": 1.2750, "USD/JPY": 155.00, "AUD/USD": 0.6650, "USD/CAD": 1.3650 }`;
         
-        const text = await askGemini(prompt, system, true, true); // JSON + Search
+        // 1. Ask Gemini (Search Enabled to get live prices)
+        let text = await askGemini(prompt, system, true, true); 
         if (!text) return;
 
+        // 2. CLEAN THE RESPONSE (The Fix)
+        // Gemini loves adding ```json ... ```. We must remove it.
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+        // 3. Parse
         const data = JSON.parse(text);
         const steps = { "XAU/USD": 25, "XAG/USD": 0.50, "USD/JPY": 0.50, "default": 0.0050 };
         let changed = false;
@@ -396,6 +408,7 @@ const runForexWatchdog = async () => {
             const step = steps[pair] || steps["default"];
             const prev = state.lastForexPrices[pair] || 0;
 
+            // Initialize previous price if empty
             if (prev === 0) {
                 state.lastForexPrices[pair] = price;
                 changed = true;
@@ -410,6 +423,8 @@ const runForexWatchdog = async () => {
                 const direction = price > prev ? "📈 BREAKOUT" : "📉 BREAKDOWN";
                 const color = price > prev ? 3066993 : 15158332;
 
+                console.log(`🚀 Sending Alert: ${pair} at ${price}`);
+
                 await axios.post(process.env.WEBHOOK_FOREX, {
                     username: "OASIS | FX Watchdog", avatar_url: BOT_AVATAR,
                     embeds: [{ title: `${direction}: ${pair}`, description: `**${pair}** has crossed the **${crossed}** psychological level.\nCurrent Price: **${price}**`, color: color, footer: { text: FOREX_FOOTER } }]
@@ -419,29 +434,43 @@ const runForexWatchdog = async () => {
             changed = true;
         }
         if (changed) saveMemory();
-    } catch (e) { console.error("Forex Watchdog Error:", e.message); }
+
+    } catch (e) { 
+        console.error("Forex Watchdog Critical Error:", e.message); 
+        // If JSON parse fails, log the raw text to see what Gemini actually sent
+        if (e instanceof SyntaxError) console.error("Raw Invalid JSON:", e.message);
+    }
 };
 
-// --- MODULE 12: FOREX WEEKLY DIGEST ---
+// --- MODULE 12: FOREX WEEKLY DIGEST (Fixed Memory Handling) ---
 const runForexWeekly = async () => {
     console.log('💱 Generating FX Weekly...');
     
-    if (state.forexMemory.length === 0) {
-        console.log("No FX memory found, skipping report.");
+    // 1. Safety Check: Is there memory?
+    if (!state.forexMemory || state.forexMemory.length === 0) {
+        console.log("⚠️ No FX news in memory. Creating a 'Live Search' report instead...");
+        
+        // FALLBACK: If no memory, Search live instead of failing
+        const prompt = "Search for the biggest Forex news this week (EUR, USD, JPY, Gold). Write a 3-bullet Weekly Outlook.";
+        const text = await askGemini("Weekly FX Outlook", prompt, false, true); // Search enabled
+        
+        if (text) {
+             await axios.post(process.env.WEBHOOK_FOREX, {
+                username: "OASIS | FX Intelligence",
+                avatar_url: BOT_AVATAR,
+                embeds: [{ title: "💱 WEEKLY FOREX OUTLOOK (Live Scan)", description: text, color: 16777215, image: { url: WEEKLY_HEADER_IMG }, footer: { text: "Institutional FX Strategy • Oasis Terminal" } }]
+            });
+        }
         return;
     }
 
+    // 2. Generate Report from Actual Memory
     try {
         const titles = state.forexMemory.map(i => i.title).join("\n");
-        const prompt = `Analyze these Forex headlines collected over the week:\n${titles}`;
-        const system = `Senior Forex Analyst. Write a concise **Weekly Forex Outlook**.
-        - Synthesize the data into 3 high-impact bullets with bold headers.
-        - Focus on Central Banks, Yields, and DXY context.
-        - Do NOT list the headlines again.`;
+        const prompt = `Analyze these Forex headlines collected over the week:\n${titles}\n\nTask: Write a concise **Weekly Forex Outlook**.\n- Synthesize the data into 3 high-impact bullets with bold headers.\n- Focus on Central Banks, Yields, and DXY context.`;
 
-        const text = await askGemini(prompt, system);
+        const text = await askGemini(prompt, "Senior Forex Analyst.", false, false); // No search needed, we have data
         
-        // Generate the Source List (Top 5 links)
         const sources = state.forexMemory.slice(-5).map(i => `• [${i.title}](${i.link})`).join("\n");
 
         if (text) {
@@ -457,10 +486,11 @@ const runForexWeekly = async () => {
                 }]
             });
         }
-      
-        state.forexMemory = [];// Clear memory after successful report
-        savememory();
-      
+        
+        state.forexMemory = []; 
+        saveMemory();
+        console.log("✅ FX Weekly Sent Successfully.");
+
     } catch (e) { console.error("FX Weekly Error:", e.message); }
 };
 
@@ -482,20 +512,24 @@ cron.schedule('0 6 * * *', runFearGreed);
 app.listen(port, () => console.log(`Oasis Terminal v5.6 Fully Operational`));
 
 // --- TEST ROUTES ---
-app.get('/test-whale', async (req, res) => { await runWhaleMovement(); res.send("Whale Move Triggered"); });
-app.get('/test-sentiment', async (req, res) => { await runFearGreed(); res.send("Sentiment Triggered"); });
-app.get('/test-liq', async (req, res) => { await runLiquidationWatch(); res.send("Liquidation Triggered"); });
-app.get('/test-wrap', async (req, res) => { weeklyMemory=[{title:"Test Headline",link:"#"}]; await runWeeklyWrap(); res.send("Wrap Triggered"); });
-app.get('/test-desk', async (req, res) => { await runMarketDesk(true); res.send("Desk Triggered"); });
-app.get('/test-brief', async (req, res) => { await runMorningBrief(); res.send("Brief Triggered"); });
-app.get('/test-Forex', async (req, res) => { await runForexWatchdog(); res.send("FX Watchdog Triggered (Check Discord for Breakout/Breakdown alerts)"); });
-app.get('/test-forex-weekly', async (req, res) => {
-    // Seed fake memory to test formatting instantly
-        state.forexMemory = [
+
+// TEST WATCHDOG: We force the price change logic by manually setting an old price
+app.get('/test-forex', async (req, res) => { 
+    console.log("Manual trigger: Forex Watchdog");
+    // Hack: Set previous price of Gold to 2000 so the current price triggers an alert
+    state.lastForexPrices["XAU/USD"] = 2000; 
+    await runForexWatchdog(); 
+    res.send("FX Watchdog Triggered. check logs for 'Sending Alert' message."); 
+});
+
+// TEST WEEKLY: We inject fake news so it doesn't use the fallback
+app.get('/test-forex-weekly', async (req, res) => { 
+    console.log("Manual trigger: Forex Weekly");
+    state.forexMemory = [
         { title: "Gold Breaks $2,400 Amid Geopolitical Tensions", link: "https://cnbc.com" },
         { title: "ECB Signals Rate Cut for June as Inflation Cools", link: "https://bloomberg.com" },
         { title: "USD/JPY Hits 155.00 on Strong US Jobs Data", link: "https://reuters.com" }
     ];
     await runForexWeekly(); 
-    res.send("FX Weekly Report Triggered (Check Discord)"); 
+    res.send("FX Weekly Report Sent to Discord."); 
 });
